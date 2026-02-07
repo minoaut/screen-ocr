@@ -1,0 +1,1102 @@
+#!/usr/bin/env python3
+import subprocess
+import sys
+import os
+import time
+import tempfile
+import math
+import json
+from pathlib import Path
+
+from PIL import Image, ImageOps, ImageChops, ImageFilter, ImageTk
+import tkinter as tk
+from tkinter import messagebox, ttk, font
+
+import numpy as np
+
+
+def is_background_bright(image):
+    """Detect if background is brighter than foreground by analyzing histogram distribution"""
+    if image.mode != "L":
+        image = image.convert("L")
+
+    # Get histogram
+    hist = image.histogram()
+
+    # Find min and max non-zero intensity values
+    min_val = next(i for i, count in enumerate(hist) if count > 0)
+    max_val = next(i for i in range(len(hist) - 1, -1, -1) if hist[i] > 0)
+
+    # Calculate midpoint between extrema
+    midpoint = (min_val + max_val) // 2
+
+    # Sum frequencies for lower and upper halves
+    lower_sum = sum(hist[min_val : midpoint + 1])
+    upper_sum = sum(hist[midpoint + 1 : max_val + 1])
+
+    # If upper half has significantly more pixels, background is bright
+    return upper_sum > lower_sum
+
+
+def equalize_background(image, radius):
+    """Equalize background lighting while preserving text details"""
+    if image.mode != "L":
+        image = image.convert("L")
+
+    # Check if background is bright and invert if needed
+    invert = is_background_bright(image)
+    if invert:
+        image = ImageOps.invert(image)
+
+    # Apply morphological operations to enhance background
+    background = image.filter(ImageFilter.GaussianBlur(radius=radius))
+
+    # Subtract background from original to normalize lighting
+    normalized = ImageChops.subtract(image, background)
+
+    # Apply CLAHE effect
+    enhanced = normalized.point(lambda x: min(255, x * 1.2))
+
+    # Invert back if we inverted earlier
+    if invert:
+        enhanced = ImageOps.invert(enhanced)
+
+    return enhanced
+
+
+def otsu_binarize(image):
+
+    # Convert to grayscale if needed
+    if image.mode != "L":
+        image = image.convert("L")
+
+    # Get histogram
+    hist, bins = np.histogram(np.array(image), 256, [0, 256])
+    hist = hist.astype(float)
+
+    # Calculate probabilities
+    prob = hist / hist.sum()
+
+    # Calculate cumulative probabilities and means
+    cum_prob = np.cumsum(prob)
+    cum_mean = np.cumsum(prob * np.arange(256))
+
+    # Calculate between-class variance
+    var_between = cum_prob * (cum_mean / cum_prob - cum_mean[-1]) ** 2
+
+    # Find threshold that maximizes variance
+    threshold = np.argmax(var_between) if var_between.max() > 0 else 128
+
+    # Apply threshold
+    return image.point(lambda x: 255 if x > threshold else 0)
+
+
+def otsu_binarize_improved(image):
+    if image.mode != "L":
+        image = image.convert("L")
+
+    # Apply Gaussian blur to reduce noise
+    blurred = image.filter(ImageFilter.GaussianBlur(radius=1))
+
+    # Get histogram
+    hist, bins = np.histogram(np.array(blurred), 256, [0, 256])
+    hist = hist.astype(float)
+
+    # Normalize histogram
+    prob = hist / hist.sum()
+
+    # Calculate cumulative probabilities and means
+    cum_prob = np.cumsum(prob)
+    cum_mean = np.cumsum(prob * np.arange(256))
+
+    # Calculate between-class variance
+    var_between = np.zeros(256)
+    for i in range(1, 255):
+        if cum_prob[i] > 0 and cum_prob[i] < 1:
+            var_between[i] = (cum_mean[-1] * cum_prob[i] - cum_mean[i]) ** 2 / (
+                cum_prob[i] * (1 - cum_prob[i])
+            )
+
+    # Find threshold that maximizes variance
+    threshold = np.argmax(var_between) if var_between.max() > 0 else 128
+
+    # Apply threshold
+    return blurred.point(lambda x: 255 if x > threshold else 0)
+
+
+def get_xdg_config_home():
+    return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
+
+
+def get_config_path(app_name):
+    config_home = get_xdg_config_home()
+    app_config_dir = config_home / app_name
+    app_config_dir.mkdir(exist_ok=True)
+    return app_config_dir / "config.json"
+
+
+class Config:
+    def __init__(self, app, config_file):
+        self.app = app
+        self.config_file = Path(config_file)
+        self.data = {}
+        self.save_delay = 5.0  # seconds
+
+    def maybe_save(self):
+        def save_with_delay():
+            self.save()
+            self.save_timer = None
+
+        if not self.save_timer:
+            self.save_timer = self.app.after(self.save_delay, save_with_delay)
+
+    def set(self, key, value):
+        self.data[key] = value
+        self.save()
+
+    def load(self):
+        app = self.app
+
+        print(f"loading {self.config_file}")
+
+        data = {}
+
+        try:
+            if self.config_file.exists():
+                with open(self.config_file, "r") as f:
+                    data = json.load(f)
+        except Exception as e:
+            print(f"Failed to load config: {e}")
+
+        app.current_lang_index = data.get("current_lang_index", app.current_lang_index)
+        # app.image_scale = data.get("image_scale", app.image_scale)
+        app.grayscale_enabled.set(
+            data.get("grayscale_enabled", app.grayscale_enabled.get())
+        )
+        app.invert_enabled.set(data.get("invert_enabled", app.invert_enabled.get()))
+        app.background_equalization_enabled.set(
+            data.get(
+                "background_equalization_enabled",
+                app.background_equalization_enabled.get(),
+            )
+        )
+        app.background_equalization_radius = data.get(
+            "background_equalization_radius", app.background_equalization_radius
+        )
+        app.contrast_mode.set(data.get("contrast_mode", app.contrast_mode.get()))
+        # app.lower_threshold = data.get("lower_threshold", app.lower_threshold)
+        # app.upper_threshold = data.get("upper_threshold", app.upper_threshold)
+        app.binarization_mode.set(
+            data.get("binarization_mode", app.binarization_mode.get())
+        )
+
+    def save(self):
+        app = self.app
+
+        data = {
+            "current_lang_index": app.current_lang_index,
+            "image_scale": app.image_scale,
+            "grayscale_enabled": app.grayscale_enabled.get(),
+            "invert_enabled": app.invert_enabled.get(),
+            "background_equalization_enabled": app.background_equalization_enabled.get(),
+            "background_equalization_radius": app.background_equalization_radius,
+            "contrast_mode": app.contrast_mode.get(),
+            "lower_threshold": app.lower_threshold,
+            "upper_threshold": app.upper_threshold,
+            "binarization_mode": app.binarization_mode.get(),
+        }
+
+        with open(self.config_file, "w") as f:
+            json.dump(data, f, indent=2)
+
+
+class App:
+    def __init__(self):
+        self.start_x = self.start_y = 0
+        self.end_x = self.end_y = 0
+        self.rect_id = None
+        self.screenshot_photo = None
+        self.screenshot = None
+        self.cropped_image = None
+        self.selection_window = None
+        self.root = None
+        self.canvas = None
+        self.sidebar = None
+        self.sidebar_visible = False
+        self.sidebar_timer = None
+        self.sidebar_width = 200
+        self.selection = None
+        self.results_popup = None
+
+        self.screen_fn = "/tmp/screen-ocr-full.png"
+
+        self.cropped_fn = "/tmp/screen-ocr-cropped.png"
+
+        self.output_base_fn = "/tmp/screen-ocr-output"
+        self.output_fn = self.output_base_fn + ".txt"
+
+        # Language selection
+        self.languages = ["jpn", "eng", "deu", "eng+jpn"]
+        self.current_lang_index = 3  # Default to eng+jpn
+
+    def run(self):
+        self.root = tk.Tk()
+        self.root.withdraw()  # Hide main window
+
+        self.image_scale = 1.0
+        self.grayscale_enabled = tk.BooleanVar(value=True)  # requires self.root
+        self.invert_enabled = tk.BooleanVar(value=False)
+        self.background_equalization_enabled = tk.BooleanVar(value=True)
+        self.background_equalization_radius = 20.0
+        self.contrast_mode = tk.StringVar(value="auto")
+        self.lower_threshold = 0
+        self.upper_threshold = 255
+        self.binarization_mode = tk.StringVar(value="off")
+
+        self.app_name = "screen_ocr"
+        self.config_fn = get_config_path(self.app_name)
+        self.config = Config(self, os.path.expanduser(self.config_fn))
+        self.config.load()
+
+        # Set default font globally
+        font_size = 14
+        button_font_size = font_size - 3
+        self.default_font = font.Font(family="TkDefaultFont", size=font_size)
+        self.default_button_font = font.Font(
+            family="TkDefaultFont", size=button_font_size
+        )
+
+        self.create_ui()
+
+        # Capture full screen screenshot
+        subprocess.run(["import", "-window", "root", self.screen_fn], check=True)
+
+        # Load and display the screenshot using PIL.ImageTk
+        self.screenshot = Image.open(self.screen_fn)
+
+        self.update_ui()
+
+        self.selection_window.after_idle(
+            lambda: self.show_temp_notice("Right click to quit.", 5000)
+        )
+
+        # Start selection
+        self.selection_window.mainloop()
+
+    def create_ui(self):
+        dark_mode = True
+        if dark_mode:
+            style = ttk.Style()
+            style.configure(
+                "Dark.TCombobox",
+                fieldbackground="gray30",
+                background="gray30",
+                foreground="white",
+                arrowcolor="white",
+                font=self.default_font,  # no effect, set it directly
+            )
+            style.map(
+                "Dark.TCombobox",
+                fieldbackground=[("readonly", "gray30")],
+                background=[("readonly", "gray30")],
+            )
+            style.configure(
+                "Dark.TCheckbutton",
+                background="gray20",
+                foreground="white",
+                selectcolor="gray30",
+                font=self.default_font,
+            )
+            style.map(
+                "Dark.TCheckbutton",
+                background=[("active", "gray30")],
+                foreground=[("active", "white")],
+            )
+            style.configure(
+                "Dark.TRadiobutton",
+                background="gray20",
+                foreground="white",
+                selectcolor="gray30",
+                font=self.default_font,
+            )
+            style.map(
+                "Dark.TRadiobutton",
+                background=[("active", "gray30")],
+                foreground=[("active", "white")],
+            )
+            style.configure(
+                "Dark.Horizontal.TScale",
+                background="gray20",
+                foreground="white",
+                troughcolor="gray30",
+                sliderrelief="raised",
+                font=self.default_font,
+            )
+            style.map(
+                "Dark.Horizontal.TScale",
+                background=[("active", "gray30")],
+                foreground=[("active", "white")],
+            )
+            style.configure(
+                "Dark.Horizontal.TScrollbar",
+                background="gray30",
+                troughcolor="gray20",
+                arrowcolor="white",
+                font=self.default_font,
+            )
+            style.map(
+                "Dark.Horizontal.TScrollbar",
+                background=[("active", "gray40")],
+                troughcolor=[("active", "gray25")],
+            )
+            style.configure(
+                "Dark.Vertical.TScrollbar",
+                background="gray30",
+                troughcolor="gray20",
+                arrowcolor="white",
+                font=self.default_font,
+            )
+            style.map(
+                "Dark.Vertical.TScrollbar",
+                background=[("active", "gray40")],
+                troughcolor=[("active", "gray25")],
+            )
+            style.configure(
+                "Dark.TButton",
+                background="gray30",
+                foreground="white",
+                font=self.default_button_font,
+                borderwidth=1,
+            )
+            style.map(
+                "Dark.TButton",
+                background=[("active", "gray40"), ("pressed", "gray35")],
+                foreground=[("active", "white")],
+            )
+            style.configure(
+                "Dark.TLabel",
+                background="gray20",
+                foreground="white",
+                font=self.default_font,
+            )
+            style.map(
+                "Dark.TLabel",
+                background=[("active", "gray30")],
+                foreground=[("active", "white")],
+            )
+
+        # Get screen dimensions
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        # Create selection window with canvas
+        self.selection_window = tk.Toplevel(self.root)
+        self.selection_window.attributes("-fullscreen", True)
+        self.selection_window.configure(bg="black")
+
+        # Create canvas for drawing
+        self.canvas = tk.Canvas(self.selection_window, bg="black", highlightthickness=0)
+        self.canvas.pack(fill=tk.BOTH, expand=True)
+
+        # Create sidebar
+        self.create_sidebar(screen_width, screen_height)
+
+        # Bind events
+        self.canvas.bind("<Button-1>", self.start_selection)
+        self.canvas.bind("<B1-Motion>", self.update_selection)
+        self.canvas.bind("<ButtonRelease-1>", self.end_selection)
+        self.canvas.bind("<Button-3>", self.quit_selection)  # Right click to quit
+        self.canvas.bind("<Motion>", self.on_mouse_move)  # Track mouse position
+
+    def create_sidebar(self, screen_width, screen_height):
+        # Create sidebar frame on the right edge
+        self.sidebar = tk.Frame(
+            self.selection_window,
+            bg="gray20",
+            width=self.sidebar_width,
+            height=screen_height,
+            borderwidth=10,
+        )
+        self.hide_sidebar()
+
+        # Language selection
+        ttk.Label(
+            self.sidebar,
+            text="Language:",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W, pady=5)
+        self.lang_var = tk.StringVar(value=self.languages[self.current_lang_index])
+        lang_combo = ttk.Combobox(
+            self.sidebar,
+            textvariable=self.lang_var,
+            values=self.languages,
+            state="readonly",
+            width=15,
+            font=self.default_font,
+            style="Dark.TCombobox",  # Add this for dark mode styling
+        )
+        lang_combo.pack(anchor=tk.W, pady=5)
+
+        def on_language_changed(event):
+            self.current_lang_index = self.languages.index(self.lang_var.get())
+            self.on_image_param_changed()
+
+        lang_combo.bind("<<ComboboxSelected>>", on_language_changed)
+
+        # Add a separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        # image scale
+        image_scale_text = lambda: f"Scale: {self.image_scale:.2}"
+        self.image_scale_label = ttk.Label(
+            self.sidebar,
+            text=image_scale_text(),
+            style="Dark.TLabel",
+        )
+        self.image_scale_label.pack(anchor=tk.W, pady=2)
+
+        def on_lower_command(x):
+            self.image_scale = math.log2(float(x))
+            self.image_scale_label.config(text=image_scale_text())
+            self.on_image_param_changed(not self.dragging)
+
+        def on_slider_press(event):
+            self.dragging = True
+
+        def on_slider_release(event):
+            self.dragging = False
+            self.on_image_param_changed()
+
+        self.bge_radius_slider = ttk.Scale(
+            self.sidebar,
+            from_=1.0,
+            to=4.0,
+            orient=tk.HORIZONTAL,
+            variable=tk.IntVar(value=math.pow(2.0, self.image_scale)),
+            command=on_lower_command,
+            style="Dark.Horizontal.TScale",
+        )
+        self.bge_radius_slider.bind("<ButtonPress-1>", on_slider_press)
+        self.bge_radius_slider.bind("<ButtonRelease-1>", on_slider_release)
+        self.bge_radius_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
+
+        # Add a separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        # Grayscale checkbox
+        ttk.Checkbutton(
+            self.sidebar,
+            text="Grayscale",
+            variable=self.grayscale_enabled,
+            command=self.on_image_param_changed,
+            style="Dark.TCheckbutton",
+        ).pack(anchor=tk.W, pady=2)
+
+        # Invert checkbox
+        ttk.Checkbutton(
+            self.sidebar,
+            text="Invert",
+            variable=self.invert_enabled,
+            command=self.on_image_param_changed,
+            style="Dark.TCheckbutton",
+        ).pack(anchor=tk.W, pady=2)
+
+        # Add a separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        # Equalize Background checkbox
+        ttk.Checkbutton(
+            self.sidebar,
+            text="Equalize Background",
+            variable=self.background_equalization_enabled,
+            command=self.on_image_param_changed,
+            style="Dark.TCheckbutton",
+        ).pack(anchor=tk.W, pady=2)
+
+        # Equalize Background radius
+        radius_label_text = lambda: f"Radius: {self.background_equalization_radius}"
+        self.bge_radius_label = ttk.Label(
+            self.sidebar,
+            text=radius_label_text(),
+            style="Dark.TLabel",
+        )
+        self.bge_radius_label.pack(anchor=tk.W, pady=2)
+
+        def on_lower_command(x):
+            self.background_equalization_radius = int(float(x))
+            self.bge_radius_label.config(text=radius_label_text())
+            self.on_image_param_changed(not self.dragging)
+
+        def on_slider_press(event):
+            self.dragging = True
+
+        def on_slider_release(event):
+            self.dragging = False
+            self.on_image_param_changed()
+
+        self.bge_radius_slider = ttk.Scale(
+            self.sidebar,
+            from_=0,
+            to=512,
+            orient=tk.HORIZONTAL,
+            variable=tk.IntVar(value=self.background_equalization_radius),
+            command=on_lower_command,
+            style="Dark.Horizontal.TScale",
+        )
+        self.bge_radius_slider.bind("<ButtonPress-1>", on_slider_press)
+        self.bge_radius_slider.bind("<ButtonRelease-1>", on_slider_release)
+        self.bge_radius_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
+
+        # Add a separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        # Preprocessing mode selection
+        ttk.Label(
+            self.sidebar,
+            text="Preprocessing:",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W, pady=5)
+
+        mode_frame = tk.Frame(self.sidebar, bg="gray20")
+        mode_frame.pack(anchor=tk.W, pady=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Manual",
+            variable=self.contrast_mode,
+            value="manual",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Equalize",
+            variable=self.contrast_mode,
+            value="equalize",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Auto",
+            variable=self.contrast_mode,
+            value="auto",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        # Add a separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        # Levels sliders (only enabled when manual mode)
+        self.lower_frame = tk.Frame(self.sidebar, bg="gray20")
+        self.upper_frame = tk.Frame(self.sidebar, bg="gray20")
+
+        # Lower threshold
+        ttk.Label(
+            self.lower_frame,
+            text="Lower:",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W)
+
+        def on_lower_command(x):
+            self.lower_threshold = int(float(x))
+            self.on_image_param_changed(not self.dragging)
+
+        def on_slider_press(event):
+            self.dragging = True
+
+        def on_slider_release(event):
+            self.dragging = False
+            self.on_image_param_changed()
+
+        self.lower_slider = ttk.Scale(
+            self.lower_frame,
+            from_=0,
+            to=255,
+            orient=tk.HORIZONTAL,
+            variable=tk.IntVar(value=self.lower_threshold),
+            command=on_lower_command,
+            state=tk.DISABLED if self.contrast_mode.get() != "manual" else tk.NORMAL,
+            style="Dark.Horizontal.TScale",
+        )
+        self.lower_slider.bind("<ButtonPress-1>", on_slider_press)
+        self.lower_slider.bind("<ButtonRelease-1>", on_slider_release)
+        self.lower_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
+
+        # Upper threshold
+        ttk.Label(
+            self.upper_frame,
+            text="Upper:",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W)
+
+        def on_upper_command(x):
+            self.upper_threshold = int(float(x))
+            self.on_image_param_changed(not self.dragging)
+
+        self.upper_slider = ttk.Scale(
+            self.upper_frame,
+            from_=0,
+            to=255,
+            orient=tk.HORIZONTAL,
+            variable=tk.IntVar(value=self.upper_threshold),
+            command=on_upper_command,
+            state=tk.DISABLED if self.contrast_mode.get() != "manual" else tk.NORMAL,
+            style="Dark.Horizontal.TScale",
+        )
+        self.upper_slider.bind("<ButtonPress-1>", on_slider_press)
+        self.upper_slider.bind("<ButtonRelease-1>", on_slider_release)
+        self.upper_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
+
+        # Pack the frames
+        self.lower_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
+        self.upper_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
+
+        # Add a separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        # Binarization mode selection
+        ttk.Label(
+            self.sidebar,
+            text="Binarization:",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W, pady=5)
+
+        mode_frame = tk.Frame(self.sidebar, bg="gray20")
+        mode_frame.pack(anchor=tk.W, pady=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Otsu Improved",
+            variable=self.binarization_mode,
+            value="otsu2",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Otsu",
+            variable=self.binarization_mode,
+            value="otsu",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Threshold",
+            variable=self.binarization_mode,
+            value="threshold",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        ttk.Radiobutton(
+            mode_frame,
+            text="Off",
+            variable=self.binarization_mode,
+            value="off",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+    def on_preprocess_mode_changed(self):
+        mode = self.contrast_mode.get()
+        # Enable/disable sliders based on mode
+        state = tk.DISABLED if mode != "manual" else tk.NORMAL
+        self.lower_slider.config(state=state)
+        self.upper_slider.config(state=state)
+        self.on_image_param_changed()
+
+    def on_image_param_changed(self, process=True):
+        # self.config.maybe_save()
+        self.update_ui()
+        if process:
+            self.process_selection()
+
+    def update_ui(self):
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+
+        if self.selection:
+            # crop to selection
+            # img = self.screenshot.copy()
+            img = self.screenshot.crop(self.selection)
+
+            if self.image_scale != 1.0:
+                max_width = int(img.width * self.image_scale)
+                max_height = int(img.height * self.image_scale)
+
+                if self.image_scale > 1.0:  # Scale up
+                    img = img.resize((max_width, max_height), Image.Resampling.BICUBIC)
+                else:  # Scale down
+                    img = img.resize((max_width, max_height), Image.Resampling.LANCZOS)
+
+            if self.grayscale_enabled.get():
+                img = img.convert("L")
+
+            if self.invert_enabled.get():
+                img = ImageOps.invert(img)
+
+            if self.background_equalization_enabled.get():
+                img = equalize_background(img, self.background_equalization_radius)
+
+            match self.contrast_mode.get():
+                case "auto":
+                    img = ImageOps.autocontrast(img)
+                case "equalize":
+                    img = ImageOps.equalize(img)
+                case "manual":
+                    # Apply levels adjustment
+                    lower = self.lower_threshold
+                    upper = self.upper_threshold
+                    img = img.point(
+                        lambda x: (
+                            0
+                            if x < lower or lower >= upper
+                            else (
+                                255
+                                if x > upper
+                                else int((x - lower) * 255.0 / (upper - lower))
+                            )
+                        )
+                    )
+                case _:
+                    pass
+
+            match self.binarization_mode.get():
+                case "off":
+                    pass
+                case "threshold":
+                    # Binarize using PIL's threshold
+                    img = img.convert("L").point(lambda x: 0 if x < 128 else 255)
+                case "otsu":
+                    # img = otsu_binarize_improved(img)
+                    img = otsu_binarize(img)
+                case "otsu2":
+                    img = otsu_binarize_improved(img)
+                case _:
+                    pass
+
+            self.cropped_image = img
+
+        # recreate canvas
+        self.canvas.delete("all")
+
+        self.screenshot_tk = ImageTk.PhotoImage(self.screenshot)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.screenshot_tk)
+
+        if self.selection:
+            x0, y0, x1, y1 = self.selection
+
+            self.cropped_image_tk = ImageTk.PhotoImage(img)
+            self.canvas.create_image(x0, y0, anchor=tk.NW, image=self.cropped_image_tk)
+
+        self.draw_selection_rect()
+
+        # draw green frame to indicate drawing can start
+        w = 6
+        wh = w * 0.5
+        start_x = start_y = wh
+        end_x = screen_width - wh
+        end_y = screen_height - wh
+        self.canvas.create_rectangle(
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            outline="green",
+            width=w,
+            fill="",
+            stipple="gray50",
+        )
+
+    def draw_selection_rect(self):
+        if self.rect_id:
+            self.canvas.delete(self.rect_id)
+        if self.selection:
+            x0, y0, x1, y1 = self.selection
+            self.rect_id = self.canvas.create_rectangle(
+                x0,
+                y0,
+                x1,
+                y1,
+                outline="red",
+                width=2,
+                fill="",
+                stipple="gray50",
+            )
+
+    def on_mouse_move(self, event):
+        screen_width = self.selection_window.winfo_width()
+        edge_distance = self.sidebar_width if self.sidebar_visible else 20
+
+        # is mouse near right edge?
+        if event.x > screen_width - edge_distance:
+            self.show_sidebar()
+            self.stop_sidebar_timer()
+        else:
+            if not self.sidebar_timer:
+                self.sidebar_timer = self.selection_window.after(500, self.hide_sidebar)
+
+    def stop_sidebar_timer(self):
+        if self.sidebar_timer:
+            self.selection_window.after_cancel(self.sidebar_timer)
+            self.sidebar_timer = None
+
+    def show_sidebar(self):
+        if not self.sidebar_visible:
+            screen_width = self.selection_window.winfo_width()
+            self.sidebar.place(x=screen_width, y=0, anchor="ne")
+            self.sidebar.lift()  # Bring to front
+            self.sidebar_visible = True
+
+    def hide_sidebar(self):
+        if self.sidebar_visible:
+            screen_width = self.selection_window.winfo_width()
+            self.sidebar.place(x=screen_width - 200, y=0, anchor="ne")
+            self.sidebar.lower()  # Send to back
+            self.sidebar_visible = False
+
+    def start_selection(self, event):
+        self.hide_temp_notice()
+        self.start_x, self.start_y = event.x, event.y
+
+    def update_selection(self, event):
+        self.end_x, self.end_y = event.x, event.y
+        self.selection = (
+            min(self.start_x, self.end_x),
+            min(self.start_y, self.end_y),
+            max(self.start_x, self.end_x),
+            max(self.start_y, self.end_y),
+        )
+        self.draw_selection_rect()
+
+    def end_selection(self, event):
+        if self.selection:
+            self.update_ui()
+            self.process_selection()
+
+    def process_selection(self):
+        cropped = self.cropped_image
+        if not cropped:
+            return
+
+        # Add recommended white border (10 pixels on each side)
+        # see https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html#binarisation
+        border = 10
+        bordered = Image.new(
+            "RGB",
+            (cropped.width + 2 * border, cropped.height + 2 * border),
+            color="white",
+        )
+        bordered.paste(cropped, (border, border))
+
+        # Save cropped image
+        bordered.save(self.cropped_fn)
+
+        # Run OCR
+        # tesseract --print-parameters | grep thresholding_
+        cmd = [
+            "tesseract",
+            self.cropped_fn,
+            self.output_base_fn,
+            "--psm",
+            "6",
+            "--dpi",
+            "72",
+            # 0 = Otsu, 1 = LeptonicaOtsu, 2 = Sauvola
+            "-c",
+            "thresholding_method=1",
+            # 0.0 for Otsu, 0.1 for LeptonicaOtsu
+            "-c",
+            "thresholding_score_fraction=0.1",
+            "-l",
+            self.languages[self.current_lang_index],
+        ]
+        print(" ".join(cmd))
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+        )
+        print(result)
+
+        if result.returncode == 0:
+            # Read output
+            with open(self.output_fn, "r") as f:
+                text = f.read().strip()
+
+            # Print and copy to clipboard
+            print(text)
+
+            self.show_result(text)
+
+            if 1:
+                subprocess.run(
+                    ["xclip", "-selection", "clipboard"],
+                    input=text,
+                    text=True,
+                    check=True,
+                )
+
+            if 0:
+                display_text = text[:200] + "..." if len(text) > 200 else text
+                subprocess.run(["notify-send", "OCR Result", display_text], check=True)
+
+        else:
+            print("OCR failed")
+
+    def show_result(self, text):
+        if self.results_popup:
+            self.results_popup.destroy()
+
+        popup = tk.Toplevel(self.selection_window)
+        popup.title("OCR Result")
+        popup.geometry("400x200")
+        popup.configure(bg="gray20", borderwidth=0)
+        popup.attributes("-alpha", 1.0)
+        self.results_popup = popup
+
+        x0, y0, x1, y1 = self.selection
+        center_x = (x0 + x1) // 2
+        center_y = (y0 + y1) // 2
+        gap = 20
+        deco_gap = 15  # extra gap for window decoration
+        popup_width, popup_height = 500, 250
+
+        # Try positions in order: below, above, left, right
+        positions = [
+            (center_x - popup_width // 2, y1 + gap),  # below
+            (center_x - popup_width // 2, y0 - popup_height - gap - deco_gap),  # above
+            (x0 - popup_width - gap, center_y - popup_height // 2),  # left
+            (x1 + gap, center_y - popup_height // 2),  # right
+        ]
+
+        # Get screen dimensions (excluding decorations)
+        screen_width = self.selection_window.winfo_screenwidth()
+        screen_height = self.selection_window.winfo_screenheight()
+
+        # Find first position that fits on screen
+        for x, y in positions:
+            if (
+                0 <= x <= screen_width - popup_width
+                and 0 <= y <= screen_height - popup_height
+            ):
+                popup.geometry(f"{popup_width}x{popup_height}+{x}+{y}")
+                break
+        else:
+            # Fallback to below if none fit
+            popup.geometry(
+                f"{popup_width}x{popup_height}+{center_x - popup_width // 2}+{y1 + gap}"
+            )
+
+        quit_button = ttk.Button(
+            popup,
+            text="Exit",
+            command=self.exit,
+            style="Dark.TButton",
+        )
+        quit_button.pack(side=tk.BOTTOM, pady=5)
+
+        text_widget = tk.Text(
+            popup,
+            wrap=tk.WORD,
+            bg="gray10",
+            fg="white",
+            insertbackground="white",
+            font=self.default_font,
+            borderwidth=0,
+            highlightthickness=0,
+        )
+        text_widget.insert(tk.END, text)
+        text_widget.config(state=tk.DISABLED)
+
+        scrollbar = ttk.Scrollbar(
+            popup,
+            orient=tk.VERTICAL,
+            command=text_widget.yview,
+            style="Dark.Vertical.TScrollbar",
+        )
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text_widget.config(yscrollcommand=scrollbar.set)
+        text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+    def show_temp_notice(self, text, duration=3000):
+        if hasattr(self, "notice_popup") and self.notice_popup:
+            self.hide_temp_notice()
+
+        popup = tk.Toplevel(self.selection_window)
+        popup.overrideredirect(True)
+        popup.configure(bg="gray20", padx=10, pady=5)
+        popup.attributes("-alpha", 0.9)
+
+        label = ttk.Label(popup, text=text, style="Dark.TLabel")
+        label.pack()
+
+        # Force update to get correct dimensions
+        popup.update_idletasks()
+
+        # Get dimensions after update
+        width = popup.winfo_reqwidth()
+        height = popup.winfo_reqheight()
+
+        # Position at bottom center
+        x = (self.selection_window.winfo_screenwidth() - width) // 2
+        y = self.selection_window.winfo_screenheight() - height - 20
+
+        popup.geometry(f"{width}x{height}+{x}+{y}")
+
+        self.notice_popup = popup
+
+        # Auto-hide
+        popup.after(duration, self.hide_temp_notice)
+
+    def hide_temp_notice(self):
+        if hasattr(self, "notice_popup") and self.notice_popup:
+            self.notice_popup.destroy()
+            self.notice_popup = None
+            self.notice_timer = None
+
+    def quit_selection(self, event):
+        self.exit()
+
+    def exit(self):
+        self.config.save()
+        self.selection_window.destroy()
+        self.root.destroy()
+
+        if self.screen_fn and os.path.exists(self.screen_fn):
+            os.unlink(self.screen_fn)
+        if 0 and self.cropped_fn and os.path.exists(self.cropped_fn):
+            os.unlink(self.cropped_fn)
+        if self.output_fn and os.path.exists(self.output_fn):
+            os.unlink(self.output_fn)
+
+
+if __name__ == "__main__":
+    if not os.path.exists("/usr/bin/import"):
+        print("Error: ImageMagick 'import' command not found")
+        sys.exit(1)
+    if not os.path.exists("/usr/bin/tesseract"):
+        print("Error: Tesseract OCR not found")
+        sys.exit(1)
+    app = App()
+    app.run()
