@@ -407,6 +407,7 @@ class App:
         self.canvas.bind("<ButtonRelease-1>", self.end_selection)
         self.canvas.bind("<Button-3>", self.quit_selection)  # Right click to quit
         self.canvas.bind("<Motion>", self.on_mouse_move)  # Track mouse position
+        self.selection_window.bind("<Escape>", self.quit_selection)
 
     def create_sidebar(self, screen_width, screen_height):
         # Create sidebar frame on the right edge
@@ -972,6 +973,7 @@ class App:
         popup.geometry("400x200")
         popup.configure(bg="gray20", borderwidth=0)
         popup.attributes("-alpha", 1.0)
+        popup.bind("<Escape>", self.quit_selection)
         self.results_popup = popup
 
         x0, y0, x1, y1 = self.selection
