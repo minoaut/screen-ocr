@@ -1,6 +1,11 @@
+.PHONY: test build install uninstall
+
 build:
 	@echo "No build required"
 
+test:
+	python3 -m unittest discover -s tests
+	
 install:
 	install -m 755 screen-ocr /usr/bin/
 	install -m 644 screen-ocr.png /usr/share/pixmaps/
