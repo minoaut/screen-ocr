@@ -16,7 +16,7 @@ A lightweight, full-screen OCR tool for capturing and extracting text from scree
 
 Install dependencies on Debian/Ubuntu:
 ```bash
-sudo apt-get install python3-tk python3-pil python3-numpy tesseract-ocr imagemagick xclip
+sudo apt-get install python3-tk python3-pil.imagetk python3-numpy tesseract-ocr imagemagick xclip
 ```
 
 Then choose one or more tesseract language packages, for example
