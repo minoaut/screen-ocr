@@ -124,6 +124,10 @@ def otsu_binarize_improved(image):
     return blurred.point(lambda x: 255 if x > threshold else 0)
 
 
+def get_temp_dir():
+    return Path(os.environ.get("TMPDIR") or tempfile.gettempdir())
+
+
 def get_xdg_config_home():
     return Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
 
@@ -133,6 +137,49 @@ def get_config_path(app_name):
     app_config_dir = config_home / app_name
     app_config_dir.mkdir(parents=True, exist_ok=True)
     return app_config_dir / "config.json"
+
+
+def get_installed_languages():
+    try:
+        result = subprocess.run(
+            ["tesseract", "--list-langs"], capture_output=True, text=True, check=True
+        )
+        lines = result.stdout.strip().splitlines()
+        langs = [line.strip() for line in lines[1:] if line.strip()]
+        return [lang for lang in langs if lang.lower() != "osd"]
+    except (subprocess.CalledProcessError, FileNotFoundError, IndexError):
+        return [""]
+
+
+def update_language_presets(old_languages, new_languages, presets):
+    """Update presets to reflect newly installed or removed tesseract-ocr-<lang> packages"""
+    old_lang_set = set(old_languages)
+    new_lang_set = set(new_languages)
+
+    # split multi-language presets
+    preset_lang_sets = [set(p.split("+")) for p in presets]
+
+    # remove presets with languages no longer in new_languages
+    # i.e. tesseract-ocr-<lang> package(s) have been removed
+    valid_presets = []
+    for lang_set in preset_lang_sets:
+        if lang_set.issubset(new_lang_set):
+            valid_presets.append(lang_set)
+
+    # find newly added languages
+    # i.e. tesseract-ocr-<lang> package(s) have been installed
+    added = new_lang_set - old_lang_set
+
+    # add new languages not mentioned anywhere yet
+    all_valid_langs = set()
+    for lang_set in valid_presets:
+        all_valid_langs.update(lang_set)
+
+    for lang in added:
+        if lang not in all_valid_langs:
+            valid_presets.append({lang})
+
+    return ["+".join(sorted(lang_set)) for lang_set in valid_presets]
 
 
 class Config:
@@ -168,6 +215,8 @@ class Config:
         except Exception as e:
             print(f"Failed to load config: {e}")
 
+        app.languages = data.get("languages", app.languages)
+        app.language_presets = data.get("language_presets", app.language_presets)
         app.current_lang_index = data.get("current_lang_index", app.current_lang_index)
         # app.image_scale = data.get("image_scale", app.image_scale)
         app.grayscale_enabled.set(
@@ -194,6 +243,8 @@ class Config:
         app = self.app
 
         data = {
+            "languages": app.languages,
+            "language_presets": app.language_presets,
             "current_lang_index": app.current_lang_index,
             "image_scale": app.image_scale,
             "grayscale_enabled": app.grayscale_enabled.get(),
@@ -228,17 +279,6 @@ class App:
         self.selection = None
         self.results_popup = None
 
-        self.screen_fn = "/tmp/screen-ocr-full.png"
-
-        self.cropped_fn = "/tmp/screen-ocr-cropped.png"
-
-        self.output_base_fn = "/tmp/screen-ocr-output"
-        self.output_fn = self.output_base_fn + ".txt"
-
-        # Language selection
-        self.languages = ["jpn", "eng", "deu", "eng+jpn"]
-        self.current_lang_index = 3  # Default to eng+jpn
-
     def run(self):
         self.root = tk.Tk()
         self.root.withdraw()  # Hide main window
@@ -253,12 +293,38 @@ class App:
         self.upper_threshold = 255
         self.binarization_mode = tk.StringVar(value="off")
 
+        # default language presets
+        languages = get_installed_languages()
+        self.languages = languages
+        self.language_presets = languages[:]
+        # add multi-language example
+        if len(languages) >= 2:
+            self.language_presets.append(languages[0] + "+" + languages[1])
+        self.current_lang_index = 0
+
+        temp_dir = get_temp_dir()
+
         self.app_name = "screen_ocr"
         self.config_fn = get_config_path(self.app_name)
+
+        self.screen_fn = temp_dir / "screen-ocr-full.png"
+
+        self.cropped_fn = temp_dir / "screen-ocr-cropped.png"
+
+        self.output_base_fn = temp_dir / "screen-ocr-output"
+        self.output_fn = self.output_base_fn.with_suffix(".txt")
+
+        # load config
         self.config = Config(self, os.path.expanduser(self.config_fn))
         self.config.load()
 
-        # Set default font globally
+        # update languages from newly installed/removed tesseract-oct-<lang> packages
+        self.language_presets = update_language_presets(
+            self.languages, languages, self.language_presets
+        )
+        self.languages = languages
+
+        # default font
         font_size = 14
         button_font_size = font_size - 3
         self.default_font = font.Font(family="TkDefaultFont", size=font_size)
@@ -267,11 +333,12 @@ class App:
         )
 
         self.create_ui()
+        self.update_lang_combo_box()
 
-        # Capture full screen screenshot
+        # capture full screen screenshot
         subprocess.run(["import", "-window", "root", self.screen_fn], check=True)
 
-        # Load and display the screenshot using PIL.ImageTk
+        # display the screenshot
         self.screenshot = Image.open(self.screen_fn)
 
         self.update_ui()
@@ -280,7 +347,7 @@ class App:
             lambda: self.show_temp_notice("Right click to quit.", 5000)
         )
 
-        # Start selection
+        # wait for selection
         self.selection_window.mainloop()
 
     def create_ui(self):
@@ -410,7 +477,6 @@ class App:
         self.selection_window.bind("<Escape>", self.quit_selection)
 
     def create_sidebar(self, screen_width, screen_height):
-        # Create sidebar frame on the right edge
         self.sidebar = tk.Frame(
             self.selection_window,
             bg="gray20",
@@ -426,25 +492,42 @@ class App:
             text="Language:",
             style="Dark.TLabel",
         ).pack(anchor=tk.W, pady=5)
-        self.lang_var = tk.StringVar(value=self.languages[self.current_lang_index])
-        lang_combo = ttk.Combobox(
+
+        # frame for side-by-side combo and edit button
+        lang_frame = tk.Frame(
             self.sidebar,
-            textvariable=self.lang_var,
-            values=self.languages,
-            state="readonly",
-            width=15,
-            font=self.default_font,
-            style="Dark.TCombobox",  # Add this for dark mode styling
+            bg="gray20",
         )
-        lang_combo.pack(anchor=tk.W, pady=5)
+        lang_frame.pack(anchor=tk.W, pady=5)
+
+        self.lang_var = tk.StringVar()
+        lang_combo = ttk.Combobox(
+            lang_frame,
+            textvariable=self.lang_var,
+            state="readonly",
+            width=12,
+            font=self.default_font,
+            style="Dark.TCombobox",
+        )
+        lang_combo.pack(side=tk.LEFT)
+
+        edit_button = ttk.Button(
+            lang_frame,
+            text="Edit",
+            width=3,
+            command=self.edit_languages,
+            style="Dark.TButton",
+        )
+        edit_button.pack(side=tk.LEFT, padx=5)
 
         def on_language_changed(event):
-            self.current_lang_index = self.languages.index(self.lang_var.get())
+            self.current_lang_index = self.language_presets.index(self.lang_var.get())
             self.on_image_param_changed()
 
         lang_combo.bind("<<ComboboxSelected>>", on_language_changed)
+        self.lang_combo = lang_combo
 
-        # Add a separator
+        # separator
         tk.Frame(self.sidebar, height=1, bg="gray40").pack(
             anchor=tk.W, fill=tk.X, padx=10, pady=5
         )
@@ -483,7 +566,7 @@ class App:
         self.bge_radius_slider.bind("<ButtonRelease-1>", on_slider_release)
         self.bge_radius_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
 
-        # Add a separator
+        # separator
         tk.Frame(self.sidebar, height=1, bg="gray40").pack(
             anchor=tk.W, fill=tk.X, padx=10, pady=5
         )
@@ -506,7 +589,7 @@ class App:
             style="Dark.TCheckbutton",
         ).pack(anchor=tk.W, pady=2)
 
-        # Add a separator
+        # separator
         tk.Frame(self.sidebar, height=1, bg="gray40").pack(
             anchor=tk.W, fill=tk.X, padx=10, pady=5
         )
@@ -554,7 +637,7 @@ class App:
         self.bge_radius_slider.bind("<ButtonRelease-1>", on_slider_release)
         self.bge_radius_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
 
-        # Add a separator
+        # separator
         tk.Frame(self.sidebar, height=1, bg="gray40").pack(
             anchor=tk.W, fill=tk.X, padx=10, pady=5
         )
@@ -596,7 +679,7 @@ class App:
             style="Dark.TRadiobutton",
         ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
 
-        # Add a separator
+        # separator
         tk.Frame(self.sidebar, height=1, bg="gray40").pack(
             anchor=tk.W, fill=tk.X, padx=10, pady=5
         )
@@ -666,7 +749,7 @@ class App:
         self.lower_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
         self.upper_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
 
-        # Add a separator
+        # separator
         tk.Frame(self.sidebar, height=1, bg="gray40").pack(
             anchor=tk.W, fill=tk.X, padx=10, pady=5
         )
@@ -717,6 +800,63 @@ class App:
             style="Dark.TRadiobutton",
         ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
 
+    def edit_languages(self):
+        initial_text = "\n".join(self.language_presets)
+
+        help_text = (
+            "Edit the list of languages below, one per line.\n"
+            "You can combine languages with '+' (e.g., 'eng+jpn').\n"
+            "Available languages: " + ", ".join(self.languages)
+        )
+
+        # help text
+        dialog = tk.Toplevel(self.selection_window)
+        dialog.title("Edit Languages")
+        dialog.transient(self.selection_window)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text=help_text, wraplength=400, justify=tk.LEFT).pack(
+            pady=(5, 5)
+        )
+
+        # Text widget for editing
+        text_widget = tk.Text(dialog, height=8, width=30, font=self.default_font)
+        text_widget.insert("1.0", initial_text)
+        text_widget.pack(pady=5, padx=10)
+
+        # Buttons
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(pady=10)
+
+        def confirm():
+            new_list = [
+                line.strip()
+                for line in text_widget.get("1.0", tk.END).splitlines()
+                if line.strip()
+            ]
+            if not new_list:
+                messagebox.showwarning(
+                    "Invalid Input", "At least one language is required."
+                )
+                return
+            self.language_presets = new_list
+
+            self.update_lang_combo_box()
+            dialog.destroy()
+
+        def cancel():
+            dialog.destroy()
+
+        ttk.Button(btn_frame, text="OK", command=confirm).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=cancel).pack(side=tk.LEFT, padx=5)
+
+    def update_lang_combo_box(self):
+        if self.current_lang_index >= len(self.language_presets):
+            self.current_lang_index = 0
+
+        self.lang_var.set(self.language_presets[self.current_lang_index])
+        self.lang_combo["values"] = self.language_presets
+
     def on_preprocess_mode_changed(self):
         mode = self.contrast_mode.get()
         # Enable/disable sliders based on mode
@@ -726,7 +866,6 @@ class App:
         self.on_image_param_changed()
 
     def on_image_param_changed(self, process=True):
-        # self.config.maybe_save()
         self.update_ui()
         if process:
             self.process_selection()
@@ -916,8 +1055,8 @@ class App:
         # tesseract --print-parameters | grep thresholding_
         cmd = [
             "tesseract",
-            self.cropped_fn,
-            self.output_base_fn,
+            str(self.cropped_fn),
+            str(self.output_base_fn),
             "--psm",
             "6",
             "--dpi",
@@ -929,7 +1068,7 @@ class App:
             "-c",
             "thresholding_score_fraction=0.1",
             "-l",
-            self.languages[self.current_lang_index],
+            self.language_presets[self.current_lang_index],
         ]
         print(" ".join(cmd))
         result = subprocess.run(
