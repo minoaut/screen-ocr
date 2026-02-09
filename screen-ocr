@@ -278,6 +278,7 @@ class App:
         self.sidebar_width = 200
         self.selection = None
         self.results_popup = None
+        self.text = ""
 
     def run(self):
         self.root = tk.Tk()
@@ -344,7 +345,7 @@ class App:
         self.update_ui()
 
         self.selection_window.after_idle(
-            lambda: self.show_temp_notice("Right click to quit.", 5000)
+            lambda: self.show_temp_notice("Draw selection. Right click to quit.", 6000)
         )
 
         # wait for selection
@@ -645,7 +646,7 @@ class App:
         # Preprocessing mode selection
         ttk.Label(
             self.sidebar,
-            text="Preprocessing:",
+            text="Levels:",
             style="Dark.TLabel",
         ).pack(anchor=tk.W, pady=5)
 
@@ -672,7 +673,7 @@ class App:
 
         ttk.Radiobutton(
             mode_frame,
-            text="Auto",
+            text="Auto Contrast",
             variable=self.contrast_mode,
             value="auto",
             command=self.on_preprocess_mode_changed,
@@ -859,6 +860,7 @@ class App:
 
     def on_preprocess_mode_changed(self):
         mode = self.contrast_mode.get()
+
         # Enable/disable sliders based on mode
         state = tk.DISABLED if mode != "manual" else tk.NORMAL
         self.lower_slider.config(state=state)
@@ -1082,19 +1084,12 @@ class App:
             # Read output
             with open(self.output_fn, "r") as f:
                 text = f.read().strip()
+            self.text = text
 
             # Print and copy to clipboard
             print(text)
 
             self.show_result(text)
-
-            if 1:
-                subprocess.run(
-                    ["xclip", "-selection", "clipboard"],
-                    input=text,
-                    text=True,
-                    check=True,
-                )
 
             if 0:
                 display_text = text[:200] + "..." if len(text) > 200 else text
@@ -1148,13 +1143,27 @@ class App:
                 f"{popup_width}x{popup_height}+{center_x - popup_width // 2}+{y1 + gap}"
             )
 
-        quit_button = ttk.Button(
+        button_frame = tk.Frame(
             popup,
-            text="Exit",
+            bg="gray20",
+        )
+        button_frame.pack(side=tk.BOTTOM, pady=5)
+
+        cancel_button = ttk.Button(
+            button_frame,
+            text="Cancel",
             command=self.exit,
             style="Dark.TButton",
         )
-        quit_button.pack(side=tk.BOTTOM, pady=5)
+        cancel_button.pack(side=tk.LEFT, padx=10)
+
+        exit_button = ttk.Button(
+            button_frame,
+            text="Copy & Exit",
+            command=self.copy_and_exit,
+            style="Dark.TButton",
+        )
+        exit_button.pack(side=tk.LEFT, padx=10)
 
         text_widget = tk.Text(
             popup,
@@ -1217,6 +1226,16 @@ class App:
             self.notice_timer = None
 
     def quit_selection(self, event):
+        self.copy_and_exit()
+
+    def copy_and_exit(self):
+        subprocess.run(
+            ["xclip", "-selection", "clipboard"],
+            input=self.text,
+            text=True,
+            check=True,
+        )
+
         self.exit()
 
     def exit(self):
