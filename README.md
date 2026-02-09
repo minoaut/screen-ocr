@@ -2,7 +2,8 @@
 
 A lightweight, full-screen OCR tool for capturing and extracting text from screen regions using Tesseract.
 
-<video src="assets/demo.mp4" controls style="max-width: 100%; height: auto;"></video>
+
+<video src="https://github.com/user-attachments/assets/c49c7ba6-acbe-47a2-b9e3-c64780d06e21"></video>
 
 ## Features
 
