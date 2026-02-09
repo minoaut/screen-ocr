@@ -2,12 +2,15 @@
 
 A lightweight, full-screen OCR tool for capturing and extracting text from screen regions using Tesseract.
 
+<video src="assets/demo.mp4" controls style="max-width: 100%; height: auto;"></video>
+
 ## Features
 
 - Select rectangular screen region
-- Clipboard copy of OCR results
+- Copy results to clipboard
+- Preprocessing options in the sidebar
 - Language selection
-- Real-time preview with configurable preprocessing (sidebar on the right)
+- Real-time preview
 - Dark theme
 - Configurable via `~/.config/screen_ocr/config.json`
 - Linux-only currently 
@@ -41,14 +44,21 @@ screen-ocr
 
 1. Click and drag to select a region.
 2. Press `Esc` or right-click anywhere to exit.
-3. A dialog pops up with the result and the result is copied to clipboard
-4. Press the Exit button or right-click the background to exit
+3. A dialog pops up with the result.
+4. Press **Copy & Exit** to copy the result to clipboard and exit, or press **Cancel** to discard and exit.
 
-If there is no result or it produces gibberish, try:
-- Inverting the image
-- Scaling the image down (especially for large text)
+If there is no result or it produces gibberish, try the options in the sidebar (hit the right screen edge):
 
-Updated results appear after each change and are copied to clipboard. Exit anytime.
+- Pick a matching language, or multi-language preset
+- Invert the image
+- Scale the image down (especially for large text)
+
+Updated results appear after each change. Exit anytime.
+
+
+## Why preprocessing?
+
+Tesseract works best on clean, high-contrast text of a certain size. Real-world screenshots often need cleanup - this utility gives you the tools to do it interactively, without exporting or manual editing.
 
 
 ## Configuration
@@ -56,6 +66,14 @@ Updated results appear after each change and are copied to clipboard. Exit anyti
 Configuration, mostly preprocessing options, is saved to `~/.config/screen_ocr/config.json`
 
 
+## Credits
+
+This tool uses [Tesseract OCR](https://github.com/tesseract-ocr/tesseract).
+
+
 ## License
 
 MIT License.
+
+Demo video: CC0 (overlay of public domain images)
+
