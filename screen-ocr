@@ -6,6 +6,7 @@ import time
 import tempfile
 import math
 import json
+import argparse
 from pathlib import Path
 
 from PIL import Image, ImageOps, ImageChops, ImageFilter, ImageTk
@@ -204,7 +205,8 @@ class Config:
     def load(self):
         app = self.app
 
-        print(f"loading {self.config_file}")
+        if app.args.verbose:
+            print(f"loading {self.config_file}")
 
         data = {}
 
@@ -281,6 +283,8 @@ class App:
         self.text = ""
 
     def run(self):
+        self.args = self.parse_command_line()
+
         self.root = tk.Tk()
         self.root.withdraw()  # Hide main window
 
@@ -350,6 +354,14 @@ class App:
 
         # wait for selection
         self.selection_window.mainloop()
+
+    @staticmethod
+    def parse_command_line():
+        parser = argparse.ArgumentParser(description="Screen OCR tool")
+        parser.add_argument(
+            "-v", "--verbose", action="store_true", help="Enable verbose output"
+        )
+        return parser.parse_args()
 
     def create_ui(self):
         dark_mode = True
@@ -1072,22 +1084,21 @@ class App:
             "-l",
             self.language_presets[self.current_lang_index],
         ]
-        print(" ".join(cmd))
+
+        if self.args.verbose:
+            print(" ".join(cmd))
+
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
         )
-        print(result)
 
         if result.returncode == 0:
             # Read output
             with open(self.output_fn, "r") as f:
                 text = f.read().strip()
             self.text = text
-
-            # Print and copy to clipboard
-            print(text)
 
             self.show_result(text)
 
@@ -1229,6 +1240,8 @@ class App:
         self.copy_and_exit()
 
     def copy_and_exit(self):
+        print(self.text)
+
         subprocess.run(
             ["xclip", "-selection", "clipboard"],
             input=self.text,
