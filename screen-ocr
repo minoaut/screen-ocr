@@ -7,6 +7,7 @@ import tempfile
 import math
 import json
 import argparse
+from enum import Enum
 from pathlib import Path
 
 from PIL import Image, ImageOps, ImageChops, ImageFilter, ImageTk
@@ -14,6 +15,13 @@ import tkinter as tk
 from tkinter import messagebox, ttk, font
 
 import numpy as np
+
+
+class DisplayServer(Enum):
+    X11 = "x11"
+    WAYLAND = "wayland"
+    XWAYLAND = "xwayland"
+    UNKNOWN = "unknown"
 
 
 def is_background_bright(image):
@@ -283,6 +291,7 @@ class App:
         self.text = ""
 
     def run(self):
+        self.display_server = self.detect_display_server()
         self.args = self.parse_command_line()
 
         self.root = tk.Tk()
@@ -341,7 +350,7 @@ class App:
         self.update_lang_combo_box()
 
         # capture full screen screenshot
-        subprocess.run(["import", "-window", "root", self.screen_fn], check=True)
+        self.save_screenshot(self.screen_fn)
 
         # display the screenshot
         self.screenshot = Image.open(self.screen_fn)
@@ -354,6 +363,67 @@ class App:
 
         # wait for selection
         self.selection_window.mainloop()
+
+    def detect_display_server(self) -> DisplayServer:
+        display = os.environ.get("DISPLAY")
+        wayland_display = os.environ.get("WAYLAND_DISPLAY")
+
+        if wayland_display and not display:
+            return DisplayServer.WAYLAND
+        elif display and not wayland_display:
+            return DisplayServer.X11
+        elif display and wayland_display:
+            return DisplayServer.XWAYLAND
+        else:
+            return DisplayServer.UNKNOWN
+
+    def save_screenshot(self, screen_fn: Path):
+        self.run_display_server_command(
+            ["import", "-window", "root", str(screen_fn)],
+            ["grim", "-t", "png", "-o", "1", str(screen_fn)],
+        )
+
+    def copy_to_clipboard(self, text: str):
+        self.run_display_server_command(
+            ["xclip", "-selection", "clipboard"],
+            ["wl-copy"],
+            input_text=text,
+        )
+
+    def run_display_server_command(
+        self, x11_cmd, wayland_cmd, input_text: str | None = None
+    ):
+        if self.display_server == DisplayServer.X11:
+            cmds = [x11_cmd]
+        elif self.display_server == DisplayServer.WAYLAND:
+            cmds = [wayland_cmd]
+        else:
+            cmds = [wayland_cmd, x11_cmd]  # XWAYLAND, UNKNOWN
+
+        for cmd in cmds:
+            try:
+                self.run_command(cmd, input_text)
+                return  # Success — exit early
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                continue  # Try next command
+
+        print(
+            "run_display_server_command ERROR: All commands failed - ", file=sys.stderr
+        )
+
+    def run_command(self, cmd, input_text: str | None = None):
+        if self.args.verbose:
+            print("run_command:", " ".join(cmd))
+
+        try:
+            if input_text is None:
+                subprocess.run(cmd, check=True)
+            else:
+                subprocess.run(cmd, input=input_text, text=True, check=True)
+        except (FileNotFoundError, subprocess.CalledProcessError) as ex:
+            if self.args.verbose:
+                print(f"run_command: {" ".join(cmd)}: {ex}", file=sys.stderr)
+            raise ex
 
     @staticmethod
     def parse_command_line():
@@ -1242,12 +1312,7 @@ class App:
     def copy_and_exit(self):
         print(self.text)
 
-        subprocess.run(
-            ["xclip", "-selection", "clipboard"],
-            input=self.text,
-            text=True,
-            check=True,
-        )
+        self.copy_to_clipboard(self.text)
 
         self.exit()
 
