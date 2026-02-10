@@ -318,7 +318,7 @@ class App:
 
         temp_dir = get_temp_dir()
 
-        self.app_name = "screen_ocr"
+        self.app_name = "screen-ocr"
         self.config_fn = get_config_path(self.app_name)
 
         self.screen_fn = temp_dir / "screen-ocr-full.png"

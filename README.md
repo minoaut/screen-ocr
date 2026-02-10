@@ -9,11 +9,10 @@ A lightweight, full-screen OCR tool for capturing and extracting text from scree
 
 - Select rectangular screen region
 - Copy results to clipboard
-- Preprocessing options in the sidebar
+- Preprocessing options in the sidebar, e.g. equalize background, adjust levels, binarization
 - Language selection
 - Real-time preview
 - Dark theme
-- Configurable via `~/.config/screen_ocr/config.json`
 - Linux-only currently 
 
 ## Dependencies
@@ -75,7 +74,7 @@ Tesseract works best on clean, high-contrast text of a certain size. Real-world 
 
 ## Configuration
 
-Configuration, mostly preprocessing options, is saved to `~/.config/screen_ocr/config.json`
+Configuration, mostly preprocessing options, is saved to `~/.config/screen-ocr/config.json`
 
 
 ## Credits
