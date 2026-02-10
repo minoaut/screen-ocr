@@ -2,8 +2,8 @@
 
 A lightweight, full-screen OCR tool for capturing and extracting text from screen regions using Tesseract.
 
-
 <video src="https://github.com/user-attachments/assets/c49c7ba6-acbe-47a2-b9e3-c64780d06e21"></video>
+
 
 ## Features
 
@@ -20,7 +20,7 @@ A lightweight, full-screen OCR tool for capturing and extracting text from scree
 
 Install dependencies on Debian/Ubuntu:
 ```bash
-sudo apt-get install python3-tk python3-pil.imagetk python3-numpy tesseract-ocr imagemagick xclip
+sudo apt-get install python3-tk python3-pil.imagetk python3-numpy tesseract-ocr imagemagick xclip grim wl-clipboard 
 ```
 
 Then choose one or more tesseract language packages, for example
@@ -30,16 +30,27 @@ sudo apt-get install tesseract-ocr-eng tesseract-ocr-jpn
 
 ## Running
 
-Run directly
+Run directly, without installation:
 ```bash
-./screen_ocr
+./screen-ocr
 ```
 
-Or install system-wide (creates `/usr/local/bin/screen_ocr` and a desktop file)
+Or install system-wide (default prefix `/usr/local`):
 ```bash
 sudo make install
+```
+
+Or at a custom location (e.g., `/usr`):
+```bash
+sudo make install PREFIX=/usr
+```
+
+Once installed, run
+```bash
 screen-ocr
 ```
+Or launch `screen-ocr.desktop` from your desktop environment’s application menu or launcher.
+
 
 ## Usage
 
