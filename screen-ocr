@@ -249,6 +249,9 @@ class Config:
             data.get("binarization_mode", app.binarization_mode.get())
         )
         # app.binarization_threshold = data.get("binarization_threshold", app.binarization_threshold)
+        app.join_result_lines.set(
+            data.get("join_result_lines", app.join_result_lines.get())
+        )
 
     def save(self):
         app = self.app
@@ -267,6 +270,7 @@ class Config:
             "upper_threshold": app.upper_threshold,
             "binarization_mode": app.binarization_mode.get(),
             "binarization_threshold": app.binarization_threshold,
+            "join_result_lines": app.join_result_lines.get(),
         }
 
         with open(self.config_file, "w") as f:
@@ -309,6 +313,7 @@ class App:
         self.upper_threshold = 255
         self.binarization_threshold = 128  # 0..255
         self.binarization_mode = tk.StringVar(value="off")
+        self.join_result_lines = tk.BooleanVar(value=False)
 
         # default language presets
         languages = get_installed_languages()
@@ -1224,7 +1229,7 @@ class App:
                 text = f.read().strip()
             self.text = text
 
-            self.show_result(text)
+            self.show_result()
 
             if 0:
                 display_text = text[:200] + "..." if len(text) > 200 else text
@@ -1233,7 +1238,7 @@ class App:
         else:
             print("OCR failed")
 
-    def show_result(self, text):
+    def show_result(self):
         if self.results_popup:
             self.results_popup.destroy()
 
@@ -1278,27 +1283,36 @@ class App:
                 f"{popup_width}x{popup_height}+{center_x - popup_width // 2}+{y1 + gap}"
             )
 
-        button_frame = tk.Frame(
-            popup,
-            bg="gray20",
+        controls_frame = tk.Frame(popup, bg="gray20")
+        controls_frame.pack(side=tk.BOTTOM, pady=5, fill=tk.X)
+
+        join_lines_check = ttk.Checkbutton(
+            controls_frame,
+            text="Join lines",
+            variable=self.join_result_lines,
+            command=self.update_results_text_widget,
+            style="Dark.TCheckbutton",
         )
-        button_frame.pack(side=tk.BOTTOM, pady=5)
+        join_lines_check.pack(side=tk.LEFT, padx=10)
+
+        buttons_frame = tk.Frame(controls_frame, bg="gray20")
+        buttons_frame.pack(side=tk.RIGHT, padx=10)
 
         cancel_button = ttk.Button(
-            button_frame,
+            buttons_frame,
             text="Cancel",
             command=self.exit,
             style="Dark.TButton",
         )
-        cancel_button.pack(side=tk.LEFT, padx=10)
+        cancel_button.pack(side=tk.LEFT, padx=5)
 
         exit_button = ttk.Button(
-            button_frame,
+            buttons_frame,
             text="Copy & Exit",
             command=self.copy_and_exit,
             style="Dark.TButton",
         )
-        exit_button.pack(side=tk.LEFT, padx=10)
+        exit_button.pack(side=tk.LEFT, padx=5)
 
         text_widget = tk.Text(
             popup,
@@ -1310,8 +1324,6 @@ class App:
             borderwidth=0,
             highlightthickness=0,
         )
-        text_widget.insert(tk.END, text)
-        text_widget.config(state=tk.DISABLED)
 
         scrollbar = ttk.Scrollbar(
             popup,
@@ -1323,6 +1335,23 @@ class App:
 
         text_widget.config(yscrollcommand=scrollbar.set)
         text_widget.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.results_text_widget = text_widget
+
+        self.update_results_text_widget()
+
+    def update_results_text_widget(self):
+        widget = self.results_text_widget
+        text = self.get_result_text()
+
+        widget.delete("1.0", tk.END)
+        widget.insert(tk.END, text)
+
+    def get_result_text(self):
+        text = self.text
+
+        if self.join_result_lines.get():
+            text = " ".join(line.strip() for line in text.splitlines() if line)
+        return text
 
     def show_temp_notice(self, text, duration=3000):
         if hasattr(self, "notice_popup") and self.notice_popup:
@@ -1364,9 +1393,11 @@ class App:
         self.copy_and_exit()
 
     def copy_and_exit(self):
-        print(self.text)
+        text = self.get_result_text()
 
-        self.copy_to_clipboard(self.text)
+        print(text)
+
+        self.copy_to_clipboard(text)
 
         self.exit()
 
