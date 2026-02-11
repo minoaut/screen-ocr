@@ -248,6 +248,7 @@ class Config:
         app.binarization_mode.set(
             data.get("binarization_mode", app.binarization_mode.get())
         )
+        # app.binarization_threshold = data.get("binarization_threshold", app.binarization_threshold)
 
     def save(self):
         app = self.app
@@ -265,6 +266,7 @@ class Config:
             "lower_threshold": app.lower_threshold,
             "upper_threshold": app.upper_threshold,
             "binarization_mode": app.binarization_mode.get(),
+            "binarization_threshold": app.binarization_threshold,
         }
 
         with open(self.config_file, "w") as f:
@@ -305,6 +307,7 @@ class App:
         self.contrast_mode = tk.StringVar(value="auto")
         self.lower_threshold = 0
         self.upper_threshold = 255
+        self.binarization_threshold = 128  # 0..255
         self.binarization_mode = tk.StringVar(value="off")
 
         # default language presets
@@ -849,6 +852,15 @@ class App:
 
         ttk.Radiobutton(
             mode_frame,
+            text="Threshold",
+            variable=self.binarization_mode,
+            value="threshold",
+            command=self.on_preprocess_mode_changed,
+            style="Dark.TRadiobutton",
+        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        ttk.Radiobutton(
+            mode_frame,
             text="Otsu Improved",
             variable=self.binarization_mode,
             value="otsu2",
@@ -867,21 +879,56 @@ class App:
 
         ttk.Radiobutton(
             mode_frame,
-            text="Threshold",
-            variable=self.binarization_mode,
-            value="threshold",
-            command=self.on_preprocess_mode_changed,
-            style="Dark.TRadiobutton",
-        ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
-
-        ttk.Radiobutton(
-            mode_frame,
             text="Off",
             variable=self.binarization_mode,
             value="off",
             command=self.on_preprocess_mode_changed,
             style="Dark.TRadiobutton",
         ).pack(anchor=tk.W, side=tk.BOTTOM, padx=2)
+
+        # separator
+        tk.Frame(self.sidebar, height=1, bg="gray40").pack(
+            anchor=tk.W, fill=tk.X, padx=10, pady=5
+        )
+
+        self.threshold_frame = tk.Frame(self.sidebar, bg="gray20")
+        self.threshold_frame.pack(anchor=tk.W, fill=tk.X, pady=2)
+
+        # threshold slider
+        ttk.Label(
+            self.threshold_frame,
+            text="Threshold:",
+            style="Dark.TLabel",
+        ).pack(anchor=tk.W)
+
+        def on_bin_threshold_command(x):
+            self.binarization_threshold = int(float(x))
+            self.on_image_param_changed(not self.dragging)
+
+        def on_slider_press(event):
+            self.dragging = True
+
+        def on_slider_release(event):
+            self.dragging = False
+            self.on_image_param_changed()
+
+        self.bin_threshold_slider = ttk.Scale(
+            self.threshold_frame,
+            from_=0,
+            to=255,
+            orient=tk.HORIZONTAL,
+            variable=tk.IntVar(value=self.binarization_threshold),
+            command=on_bin_threshold_command,
+            state=(
+                tk.DISABLED
+                if self.binarization_mode.get() != "threshold"
+                else tk.NORMAL
+            ),
+            style="Dark.Horizontal.TScale",
+        )
+        self.bin_threshold_slider.bind("<ButtonPress-1>", on_slider_press)
+        self.bin_threshold_slider.bind("<ButtonRelease-1>", on_slider_release)
+        self.bin_threshold_slider.pack(anchor=tk.W, fill=tk.X, padx=10, pady=2)
 
     def edit_languages(self):
         initial_text = "\n".join(self.language_presets)
@@ -941,12 +988,17 @@ class App:
         self.lang_combo["values"] = self.language_presets
 
     def on_preprocess_mode_changed(self):
-        mode = self.contrast_mode.get()
+        contrast_mode = self.contrast_mode.get()
+        binarization_mode = self.binarization_mode.get()
 
         # Enable/disable sliders based on mode
-        state = tk.DISABLED if mode != "manual" else tk.NORMAL
+        state = tk.DISABLED if contrast_mode != "manual" else tk.NORMAL
         self.lower_slider.config(state=state)
         self.upper_slider.config(state=state)
+
+        state = tk.DISABLED if binarization_mode != "threshold" else tk.NORMAL
+        self.bin_threshold_slider.config(state=state)
+
         self.on_image_param_changed()
 
     def on_image_param_changed(self, process=True):
@@ -1009,7 +1061,9 @@ class App:
                     pass
                 case "threshold":
                     # Binarize using PIL's threshold
-                    img = img.convert("L").point(lambda x: 0 if x < 128 else 255)
+                    img = img.convert("L").point(
+                        lambda x: 0 if x <= self.binarization_threshold else 255
+                    )
                 case "otsu":
                     # img = otsu_binarize_improved(img)
                     img = otsu_binarize(img)
