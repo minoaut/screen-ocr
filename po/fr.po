@@ -1,0 +1,169 @@
+# Screen OCR
+# Copyright (C) 2026 minoaut
+# This file is distributed under the same license as the screen-ocr package.
+#  <minoaut@protonmail.com>, 2026.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: screen-ocr 0.1.0\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-02-13 20:08+0100\n"
+"PO-Revision-Date: 2026-02-13 19:52+0100\n"
+"Last-Translator:  <minoaut@protonmail.com>\n"
+"Language-Team: French <traduc@traduc.org>\n"
+"Language: fr\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n > 1);\n"
+
+#: screen-ocr:476
+msgid "Hold left button to draw a selection. Right click to quit."
+msgstr ""
+"Maintenez le bouton gauche pour dessiner une sélection. Clic droit pour "
+"quitter."
+
+#. Language section
+#: screen-ocr:616
+msgid "Language"
+msgstr "Langue"
+
+#: screen-ocr:631
+msgid "Edit"
+msgstr "Modifier"
+
+#. Preprocessing section
+#: screen-ocr:645
+msgid "Preprocessing"
+msgstr "Prétraitement"
+
+#. Grayscale toggle
+#: screen-ocr:683
+msgid "Grayscale"
+msgstr "Niveaux de gris"
+
+#. Invert toggle
+#: screen-ocr:688
+msgid "Invert"
+msgstr "Inverser"
+
+#. Background equalization toggle
+#: screen-ocr:699
+msgid "Equalize Background"
+msgstr "Égaliser le fond"
+
+#. Levels section
+#: screen-ocr:732
+msgctxt "Image intensity levels section"
+msgid "Levels"
+msgstr "Niveaux"
+
+#: screen-ocr:742
+msgctxt "Levels CheckButton"
+msgid "Auto Contrast"
+msgstr "Contraste automatique"
+
+#: screen-ocr:743
+msgctxt "Levels CheckButton"
+msgid "Equalize"
+msgstr "Égaliser"
+
+#: screen-ocr:744
+msgctxt "Levels CheckButton"
+msgid "Manual"
+msgstr "Manuel"
+
+#: screen-ocr:756
+msgctxt "Levels, lower limit label"
+msgid "Lower:"
+msgstr "Inférieur :"
+
+#: screen-ocr:765
+msgctxt "Levels, upper limit label"
+msgid "Upper:"
+msgstr "Supérieur :"
+
+#. Binarization section
+#: screen-ocr:789
+msgctxt "Image Binarization section"
+msgid "Binarization"
+msgstr "Binarisation"
+
+#: screen-ocr:799
+msgctxt "Binarization CheckButton"
+msgid "Off"
+msgstr "Désactivé"
+
+#: screen-ocr:800
+msgctxt "Binarization CheckButton"
+msgid "Otsu"
+msgstr "Otsu"
+
+#: screen-ocr:801
+msgctxt "Binarization CheckButton"
+msgid "Otsu Improved"
+msgstr "Otsu amélioré"
+
+#: screen-ocr:802
+msgctxt "Binarization CheckButton"
+msgid "Threshold"
+msgstr "Seuil"
+
+#: screen-ocr:814
+msgctxt "Binarization threshold label"
+msgid "Threshold:"
+msgstr "Seuil :"
+
+#: screen-ocr:904
+#, python-brace-format
+msgctxt "Image scale (zoom) label"
+msgid "Scale: {value}"
+msgstr "Échelle : {value}"
+
+#: screen-ocr:909
+#, python-brace-format
+msgctxt "Background equalization radius label"
+msgid "Radius: {value}"
+msgstr "Rayon : {value}"
+
+#: screen-ocr:1211
+msgctxt "Results Dialog, CheckButton"
+msgid "Join lines"
+msgstr "Réunir les lignes"
+
+#: screen-ocr:1221 screen-ocr:1372
+msgctxt "Dialog button"
+msgid "Cancel"
+msgstr "Annuler"
+
+#: screen-ocr:1225
+msgctxt "Dialog button"
+msgid "Copy & Exit"
+msgstr "Copier et quitter"
+
+#: screen-ocr:1337
+msgctxt "Empty list of language ids"
+msgid "(none)"
+msgstr "(aucun)"
+
+#: screen-ocr:1341
+#, python-brace-format
+msgctxt "Edit languages dialog, help label"
+msgid ""
+"Edit the list of languages below, one per line.\n"
+"You can combine languages with '+' (e.g., 'eng+jpn').\n"
+"Available languages: {lang_ids}"
+msgstr ""
+"Modifiez la liste des langues ci-dessous, une par ligne.\n"
+"Vous pouvez combiner des langues avec '+' (ex. : 'fra+eng').\n"
+"Langues disponibles : {lang_ids}"
+
+#: screen-ocr:1376
+msgctxt "Dialog button"
+msgid "OK"
+msgstr "OK"
+
+#: screen-ocr:1395
+msgctxt "Edit languages dialog, title"
+msgid "Edit Languages"
+msgstr "Modifier les langues"

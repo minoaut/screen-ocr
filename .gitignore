@@ -53,7 +53,7 @@ cover/
 
 # Translations
 *.mo
-*.pot
+#*.pot
 
 # Django stuff:
 *.log
@@ -208,3 +208,6 @@ __marimo__/
 
 
 attic
+po/*.mo
+po/*.gmo
+*~

@@ -24,7 +24,7 @@ A lightweight, full-screen OCR tool for extracting text from screen regions usin
 
 Install dependencies on Debian/Ubuntu:
 ```bash
-sudo apt-get install gir1.2-gtk-4.0 python3-gi-cairo python3-pil python3-numpy tesseract-ocr imagemagick grim
+sudo apt-get install gir1.2-gtk-4.0 python3-gi-cairo python3-pil python3-numpy gettext tesseract-ocr imagemagick grim
 ```
 
 Then choose one or more tesseract language packages, for example

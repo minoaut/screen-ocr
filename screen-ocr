@@ -7,8 +7,12 @@ import tempfile
 import math
 import json
 import argparse
+import builtins
 from enum import Enum
 from pathlib import Path
+
+import locale
+import gettext
 
 from PIL import Image, ImageOps, ImageChops, ImageFilter
 import gi
@@ -394,10 +398,6 @@ class App(Gtk.Application):
         self.is_dragging_slider = False
         self._debounce_timer = None
 
-    def run(self):
-        self.display_server = self.detect_display_server()
-        self.args = self.parse_command_line()
-
         self.image_scale = 1.0
         self.grayscale_enabled = True
         self.invert_enabled = False
@@ -409,6 +409,24 @@ class App(Gtk.Application):
         self.binarization_threshold = 128  # 0..255
         self.binarization_mode = "off"
         self.join_result_lines = False
+
+    def run(self):
+        self.display_server = self.detect_display_server()
+        self.args = self.parse_command_line()
+
+        # init translation
+        executable = os.path.realpath(__file__)
+        prefix = os.path.dirname(os.path.dirname(executable))
+        localedir = os.path.join(prefix, "share/locale")
+        domain = self.app_name
+        if self.args.verbose:
+            print(
+                f"translation: executable={executable!r} localedir={localedir!r} domain={domain!r}"
+            )
+        gettext.bindtextdomain(domain, localedir)
+        gettext.textdomain(domain)
+        builtins.__dict__["_"] = gettext.gettext
+        builtins.__dict__["pgettext"] = gettext.pgettext
 
         # default language presets
         languages = get_installed_languages()
@@ -455,7 +473,7 @@ class App(Gtk.Application):
 
         GLib.idle_add(
             lambda: self.show_temp_notice(
-                "Hold left button to draw a selection. Right click to quit.", 6000
+                _("Hold left button to draw a selection. Right click to quit."), 6000
             )
         )
 
@@ -595,7 +613,7 @@ class App(Gtk.Application):
         sidebar.set_margin_bottom(10)
 
         # Language section
-        label = Gtk.Label(label="Language")
+        label = Gtk.Label(label=_("Language"))
         label.add_css_class("heading")
         label.set_halign(Gtk.Align.START)
         label.set_margin_bottom(5)
@@ -610,7 +628,7 @@ class App(Gtk.Application):
         )
         self.lang_drop_down = lang_combo
 
-        edit_button = Gtk.Button(label="Edit")
+        edit_button = Gtk.Button(label=_("Edit"))
         edit_button.connect("clicked", self.edit_languages)
 
         lang_box.append(self.lang_drop_down)
@@ -624,7 +642,7 @@ class App(Gtk.Application):
         sidebar.append(separator)
 
         # Preprocessing section
-        label = Gtk.Label(label="Preprocessing")
+        label = Gtk.Label(label=_("Preprocessing"))
         label.add_css_class("heading")
         label.set_halign(Gtk.Align.START)
         label.set_margin_bottom(5)
@@ -662,12 +680,12 @@ class App(Gtk.Application):
         sidebar.append(separator)
 
         # Grayscale toggle
-        self.grayscale_toggle = Gtk.CheckButton(label="Grayscale")
+        self.grayscale_toggle = Gtk.CheckButton(label=_("Grayscale"))
         self.grayscale_toggle.connect("toggled", self.on_image_param_changed)
         sidebar.append(self.grayscale_toggle)
 
         # Invert toggle
-        self.invert_toggle = Gtk.CheckButton(label="Invert")
+        self.invert_toggle = Gtk.CheckButton(label=_("Invert"))
         self.invert_toggle.connect("toggled", self.on_image_param_changed)
         sidebar.append(self.invert_toggle)
 
@@ -678,7 +696,7 @@ class App(Gtk.Application):
         sidebar.append(separator)
 
         # Background equalization toggle
-        self.bg_equal_toggle = Gtk.CheckButton(label="Equalize Background")
+        self.bg_equal_toggle = Gtk.CheckButton(label=_("Equalize Background"))
         self.bg_equal_toggle.connect("toggled", self.on_image_param_changed)
         sidebar.append(self.bg_equal_toggle)
 
@@ -711,7 +729,7 @@ class App(Gtk.Application):
         sidebar.append(separator)
 
         # Levels section
-        label = Gtk.Label(label="Levels")
+        label = Gtk.Label(label=pgettext("Image intensity levels section", "Levels"))
         label.add_css_class("heading")
         label.set_halign(Gtk.Align.START)
         label.set_margin_bottom(5)
@@ -721,9 +739,9 @@ class App(Gtk.Application):
 
         self.contrast_button_group = CheckButtonGroup(
             [
-                ("auto", "Auto Contrast"),
-                ("equalize", "Equalize"),
-                ("manual", "Manual"),
+                ("auto", pgettext("Levels CheckButton", "Auto Contrast")),
+                ("equalize", pgettext("Levels CheckButton", "Equalize")),
+                ("manual", pgettext("Levels CheckButton", "Manual")),
             ],
             on_activate=self.on_image_param_changed,
             container=contrast_box,
@@ -735,7 +753,7 @@ class App(Gtk.Application):
         self.lower_level_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.upper_level_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
-        lower_label = Gtk.Label(label="Lower:")
+        lower_label = Gtk.Label(label=pgettext("Levels, lower limit label", "Lower:"))
         lower_label.set_halign(Gtk.Align.START)
         self.lower_slider = Gtk.Scale.new_with_range(
             Gtk.Orientation.HORIZONTAL, 0, 255, 1
@@ -744,7 +762,7 @@ class App(Gtk.Application):
             "value-changed", lambda slider: self.on_image_param_changed_debounced()
         )
 
-        upper_label = Gtk.Label(label="Upper:")
+        upper_label = Gtk.Label(label=pgettext("Levels, upper limit label", "Upper:"))
         upper_label.set_halign(Gtk.Align.START)
         self.upper_slider = Gtk.Scale.new_with_range(
             Gtk.Orientation.HORIZONTAL, 0, 255, 1
@@ -768,7 +786,7 @@ class App(Gtk.Application):
         sidebar.append(separator)
 
         # Binarization section
-        label = Gtk.Label(label="Binarization")
+        label = Gtk.Label(label=pgettext("Image Binarization section", "Binarization"))
         label.add_css_class("heading")
         label.set_halign(Gtk.Align.START)
         label.set_margin_bottom(5)
@@ -778,10 +796,10 @@ class App(Gtk.Application):
 
         self.binarization_button_group = CheckButtonGroup(
             [
-                ("off", "Off"),
-                ("otsu", "Otsu"),
-                ("otsu2", "Otsu Improved"),
-                ("threshold", "Threshold"),
+                ("off", pgettext("Binarization CheckButton", "Off")),
+                ("otsu", pgettext("Binarization CheckButton", "Otsu")),
+                ("otsu2", pgettext("Binarization CheckButton", "Otsu Improved")),
+                ("threshold", pgettext("Binarization CheckButton", "Threshold")),
             ],
             on_activate=self.on_image_param_changed,
             container=binarization_box,
@@ -792,7 +810,9 @@ class App(Gtk.Application):
         # Threshold slider
         self.threshold_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
 
-        threshold_label = Gtk.Label(label="Threshold:")
+        threshold_label = Gtk.Label(
+            label=pgettext("Binarization threshold label", "Threshold:")
+        )
         threshold_label.set_halign(Gtk.Align.START)
         self.bin_threshold_slider = Gtk.Scale.new_with_range(
             Gtk.Orientation.HORIZONTAL, 0, 255, 1
@@ -880,8 +900,16 @@ class App(Gtk.Application):
 
         self.threshold_frame.set_sensitive(self.binarization_mode == "threshold")
 
-        self.image_scale_label.set_text(f"Scale: {self.image_scale:.3g}")
-        self.bge_radius_label.set_text(f"Radius: {self.background_equalization_radius}")
+        self.image_scale_label.set_text(
+            pgettext("Image scale (zoom) label", "Scale: {value}").format(
+                value=f"{self.image_scale:.3g}"
+            )
+        )
+        self.bge_radius_label.set_text(
+            pgettext("Background equalization radius label", "Radius: {value}").format(
+                value=self.background_equalization_radius
+            )
+        )
 
         self._in_update_sidebar = False
 
@@ -896,7 +924,7 @@ class App(Gtk.Application):
                 max_width = int(img.width * self.image_scale)
                 max_height = int(img.height * self.image_scale)
 
-                if self.image_scale > 1.0:  # Scale up
+                if self.image_scale > 1.0:  # Scale up?
                     img = img.resize((max_width, max_height), Image.Resampling.BICUBIC)
                 else:  # Scale down
                     img = img.resize((max_width, max_height), Image.Resampling.LANCZOS)
@@ -935,7 +963,6 @@ class App(Gtk.Application):
                 case "off":
                     pass
                 case "threshold":
-                    # Binarize using PIL's threshold
                     img = img.convert("L").point(
                         lambda x: 0 if x <= self.binarization_threshold else 255
                     )
@@ -1140,7 +1167,7 @@ class App(Gtk.Application):
 
             self.show_result()
         else:
-            print("OCR failed")
+            print("OCR failed", file=sys.stderr)
 
     def show_result(self):
         if self.results_popover:
@@ -1180,7 +1207,9 @@ class App(Gtk.Application):
         buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         buttons_box.set_spacing(6)
 
-        join_check = Gtk.CheckButton(label="Join lines")
+        join_check = Gtk.CheckButton(
+            label=pgettext("Results Dialog, CheckButton", "Join lines")
+        )
         join_check.set_active(self.join_result_lines)
         join_check.connect("toggled", self.on_join_lines_changed)
         controls_box.append(join_check)
@@ -1189,11 +1218,11 @@ class App(Gtk.Application):
         spacer.set_hexpand(True)
         controls_box.append(spacer)
 
-        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button = Gtk.Button(label=pgettext("Dialog button", "Cancel"))
         cancel_button.connect("clicked", lambda w: self.exit())
         buttons_box.append(cancel_button)
 
-        copy_exit_button = Gtk.Button(label="Copy & Exit")
+        copy_exit_button = Gtk.Button(label=pgettext("Dialog button", "Copy & Exit"))
         copy_exit_button.connect("clicked", lambda w: self.copy_and_exit())
         buttons_box.append(copy_exit_button)
 
@@ -1301,11 +1330,18 @@ class App(Gtk.Application):
 
     def edit_languages(self, widget=None):
         initial_text = "\n".join(self.language_presets)
-        help_text = (
+
+        lang_ids = (
+            ", ".join(self.languages)
+            if self.languages
+            else pgettext("Empty list of language ids", "(none)")
+        )
+        help_text = pgettext(
+            "Edit languages dialog, help label",
             "Edit the list of languages below, one per line.\n"
             "You can combine languages with '+' (e.g., 'eng+jpn').\n"
-            "Available languages: " + ", ".join(self.languages)
-        )
+            "Available languages: {lang_ids}",
+        ).format(lang_ids=lang_ids)
 
         # Build content box
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
@@ -1316,7 +1352,7 @@ class App(Gtk.Application):
 
         # Help label
         label = Gtk.Label()
-        label.set_markup(f"<b>Help:</b>\n{help_text}")
+        label.set_markup(help_text)
         label.set_xalign(0)
         content_box.append(label)
 
@@ -1333,11 +1369,11 @@ class App(Gtk.Application):
         button_box.set_margin_top(10)
         content_box.append(button_box)
 
-        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button = Gtk.Button(label=pgettext("Dialog button", "Cancel"))
         cancel_button.connect("clicked", lambda btn: dialog.cancel())
         button_box.append(cancel_button)
 
-        ok_button = Gtk.Button(label="OK")
+        ok_button = Gtk.Button(label=pgettext("Dialog button", "OK"))
         ok_button.connect(
             "clicked",
             lambda btn: dialog.confirm(),
@@ -1354,16 +1390,18 @@ class App(Gtk.Application):
             self.update_sidebar()
 
         # Create dialog
-        dialog = CustomDialog(parent=self.window, title="Edit Languages")
+        dialog = CustomDialog(
+            parent=self.window,
+            title=pgettext("Edit languages dialog, title", "Edit Languages"),
+        )
         dialog.run(content_box=content_box, on_confirm=on_confirm)
 
 
 if __name__ == "__main__":
-    if not os.path.exists("/usr/bin/import"):
-        print("Error: ImageMagick 'import' command not found")
-        sys.exit(1)
+
     if not os.path.exists("/usr/bin/tesseract"):
         print("Error: Tesseract OCR not found")
         sys.exit(1)
+
     app = App()
     app.run()
