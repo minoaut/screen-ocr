@@ -10,7 +10,7 @@ import argparse
 from enum import Enum
 from pathlib import Path
 
-from PIL import Image, ImageOps, ImageChops, ImageFilter, ImageTk
+from PIL import Image, ImageOps, ImageChops, ImageFilter
 import gi
 
 gi.require_version("Gtk", "4.0")
