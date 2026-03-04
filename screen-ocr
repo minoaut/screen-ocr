@@ -1307,10 +1307,8 @@ class App(Gtk.Application):
 
         # Copy to clipboard
         clipboard = self.window.get_clipboard()
-        if clipboard:
-            content = Gdk.ContentProvider()
-            content.data = text
-            clipboard.set_content(content)
+        content = Gdk.ContentProvider.new_for_value(text)
+        clipboard.set_content(content)
 
         self.exit()
 
